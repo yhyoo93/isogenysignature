@@ -1,4 +1,6 @@
-ISOGENY-BASED SIGNATURE: Compile as you would the SIDH Library and run kex_test. This will run an iteration of the key exchange benchmark then run the keygen, signing, and verification algorithms of the signature scheme.
+ISOGENY-BASED SIGNATURE: Compile as you would the SIDH Library and run kex_test. 
+This will run an iteration of the key exchange benchmark then run the keygen, 
+signing, and verification algorithms of the signature scheme.
 
 
                                         SIDH v1.0 (C Edition)
