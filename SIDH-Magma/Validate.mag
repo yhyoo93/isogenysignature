@@ -1,0 +1,674 @@
+////////////////////////////////////////////////////////////////////////////////
+//                                                               
+// Efficient algorithms for supersingular isogeny Diffie-Hellman 
+// Craig Costello, Patrick Longa, Michael Naehrig, 2016         
+// (c) 2016 Microsoft Corporation. All rights reserved.         
+//                                                                                
+////////////////////////////////////////////////////////////////////////////////
+//                                                                               
+// This script gives the functions used to validate public keys. 
+// The functions are different for Alice and Bob
+//
+// Let a public key be [a,xP,xQ,xR] \in Fp2^4.
+//
+// For Alice's validation of Bob's public keys, it uses the "doubling-only" Weil 
+// pairing described in the paper to assert  that xP and xQ correspond to points 
+// P and Q of full order, lA^eA, and that P \neq [k]*Q for any integer k 
+// (i.e., they have a non-trivial Weil pairing).
+// For Bob's validation of Alice's public keys, it uses the "tripling-only" Weil 
+// pairing described in the paper to assert that xP and xQ correspond to points 
+// P and Q of full order, lB^eB, and that P \neq [k]*Q for any integer k 
+// (i.e., they have a non-trivial Weil pairing).
+//
+// Both sides also use Sutherland's Monte Carlo algorithm to assert supersingularity 
+// and Hamburg's trick to ensure that xR==x(Q-P). See the paper. 
+//
+
+test_curve:=function(a,X) 
+
+        /*
+        This function checks that the curve is in the correct supersingular
+        isogeny class via Sutherland's Monte Carlo algorithm. It also checks 
+        that the curve is not a subfield curve. Both Alice and Bob call this 
+        same function in their respective validation procedures below. 
+
+        Input:  
+        - The curve constant a, corresponding to E_a: y^2=x^3+a*x^2+x,
+        - a random value X in Fp2.
+        
+        Output: 
+        - A boolean, "true" if curve is valid, "false" otherwise.
+        */
+
+        // test j invariant in Fp2\Fp
+        t0:=a^2;
+        t0:=t0-3;
+        t1:=t0^2;
+        t1:=t1*t0; //  (a^2-3)^3
+        t0:=t0-1;
+        // t1 = c0+c1*i, t0=d0+d1*i
+        c0:=ElementToSequence(t1)[1]; //Fp 
+        c1:=ElementToSequence(t1)[2]; //Fp
+        d0:=ElementToSequence(t0)[1]; //Fp
+        d1:=ElementToSequence(t0)[2]; //Fp
+        c0:=c0*d1;
+        c1:=c1*d0;
+
+        valid_curve:=(c0 ne c1);
+        
+        // test supersingular
+        X,Z:=xDBLe(X,1,a,1,1);
+        X1,Z1:=xDBLe(X,Z,a,1,371);
+        X1,Z1:=xTPLe(X1,Z1,a,1,239);
+        X:=X*Z1;
+        Z:=Z*X1;
+        X:=X-Z;
+        X:=X*Z1;
+
+        valid_curve:=valid_curve and X eq 0;
+
+        return valid_curve;
+
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+// Alice's validation of Bob's public keys   
+////////////////////////////////////////////////////////////////////////////////
+
+validate_PKB:=function(A,xP,xQ,xQP,e)
+
+        /*
+        This is the main function that validates Bob's public keys.
+
+        Input:  
+        - Bob's public key [A,xP,xQ,xQP],
+        - the exponent eA(=372 for our curve) for Miller's algorithm.
+
+        Output: 
+        - A boolean value, "true" if key is valid, "false" otherwise.
+        */
+
+    X:=Random(Fp2); // used for Sutherland's algorithm
+    // (can be fixed in practice, must be secret, make it a hash)
+
+    // initialization for Weil pairing
+    fP:=1; fQ:=1; 
+    XP:=xP; XQ:=xQ; UQ:=1; UP:=1;
+    ZP:=1; ZQ:=1; VP:=1; VQ:=1; 
+    alphaP:=0; betaP:=1;
+    alphaQ:=0; betaQ:=1;
+    t0:=xP; t1:=xQ;
+    cQ:=xQ+A;
+    cP:=xP+A;
+    cQ:=cQ*xQ; 
+    cP:=cP*xP; 
+    cQ:=cQ+1;
+    cP:=cP+1;
+    cQ:=cQ*xQ;
+    cP:=cP*xP;
+
+    // the x-only doubling-only Miller loop
+    for i:=1 to e-1 do
+             
+        t2:=XP^2;
+        t11:=ZP^2;
+        t4:=XQ^2;
+        t10:=ZQ^2;
+        t6:=t2-t11;
+        betaPi:=t2+t2;
+        t2:=t2+t11;
+        t7:=t4-t10;
+        alphaQi:=t4+t4;
+        t4:=t4+t10;
+        t3:=XP*ZP; 
+        t5:=XQ*ZQ; 
+        t8:=A*t3;
+        t9:=A*t5;
+        t3:=t3+t3;
+        t5:=t5+t5;
+        betaPi:=betaPi+t8;
+        t8:=t8+t2;
+        alphaQi:=alphaQi+t9;
+        t9:=t9+t4;
+        t2:=A*t2;
+        t4:=A*t4;
+        betaPi:=betaPi+t8;
+        alphaQi:=alphaQi+t9;
+        betaPi:=betaPi*t1;
+        alphaQi:=alphaQi*t0;
+        t1:=XP*t6;
+        t0:=XQ*t7;
+        t1:=t1-betaPi;
+        t0:=t0-alphaQi;
+        betaPi:=VP*t1;
+        alphaQi:=VQ*t0;
+        t10:=t10*ZQ;
+        t11:=t11*ZP;
+        t10:=t10*UQ;
+        t11:=t11*UP;
+        betaPi:=betaPi*t10;
+        alphaQi:=alphaQi*t11;
+        t10:=t10*t11;
+        t10:=t10+t10;
+        alphaPi:=cQ*t10;
+        betaQi:=cP*t10;
+        UQ:=UQ*t7;
+        UP:=UP*t6;
+        t8:=t8+t8;
+        t9:=t9+t9;
+        ZP:=t3*t8;
+        ZQ:=t5*t9;
+        t8:=t8*XP;
+        t9:=t9*XQ;
+        XP:=t6^2;
+        XQ:=t7^2;
+        t4:=t4+t5;
+        t4:=t4+t5;
+        t2:=t2+t3;
+        t2:=t2+t3;
+        t4:=t4*t5;
+        t2:=t2*t3;
+        t4:=t4+XQ;
+        t2:=t2+XP;
+        UQ:=UQ*t4;
+        UP:=UP*t2;
+        t9:=t9^2;
+        t8:=t8^2;
+        VQ:=VQ*t9;
+        VP:=VP*t8;
+        VQ:=VQ+VQ;
+        VP:=VP+VP;
+        t4:=alphaP^2;
+        t5:=betaP^2;
+        t6:=alphaP*betaP; 
+        t6:=t6+t6; 
+        t4:=t4*cP;
+        t5:=t5*cQ;
+        t4:=t4+t5;
+        alphaP:=alphaPi*t4;
+        betaP:=betaPi*t4;
+        t4:=t6*betaPi;
+        t4:=t4*cQ;
+        t6:=t6*alphaPi;
+        t6:=t6*cP;
+        alphaP:=alphaP+t4;
+        betaP:=betaP+t6;
+        t4:=alphaQ^2;
+        t5:=betaQ^2;
+        t6:=alphaQ*betaQ; 
+        t6:=t6+t6;
+        t4:=t4*cP;
+        t5:=t5*cQ;
+        t4:=t4+t5;
+        alphaQ:=alphaQi*t4;
+        betaQ:=betaQi*t4;
+        t4:=t6*betaPi;
+        t4:=t4*cQ;
+        t5:=t6*betaQi;
+        t5:=t5*cQ;
+        alphaQ:=alphaQ+t5;
+        t5:=t6*alphaQi;
+        t5:=t5*cP;
+        betaQ:=betaQ+t5;
+        t0:=xP*ZQ; 
+        t1:=xQ*ZP; 
+        t2:=XQ-t0;
+        t3:=XP-t1;
+        t2:=t2*ZP;
+        t3:=t3*ZQ;
+        alphaP:=alphaP*t2;
+        betaP:=betaP*t2;
+        alphaQ:=alphaQ*t3;
+        betaQ:=betaQ*t3;
+
+    end for;
+
+    // the special, final iteration checks the orders of the points
+    // before checking that the Weil pairing is non-trivial
+    
+    t2:=xQ*ZP;
+    t3:=xP*ZQ;
+    t2:=XP-t2;
+    t3:=XQ-t3;
+    t2:=t2*ZQ;
+    t3:=t3*ZP;
+    t4:=alphaP^2;
+    t5:=betaP^2;
+    t6:=alphaP*betaP;
+    t6:=t6+t6;
+    t7:=alphaQ^2;
+    t8:=betaQ^2;
+    t9:=alphaQ*betaQ;
+    t9:=t9+t9;
+    t4:=t4*cP;
+    t5:=t5*cQ;
+    t7:=t7*cP;
+    t8:=t8*cQ;
+    t4:=t4+t5;
+    t7:=t7+t8;
+    t4:=t2*t4;
+    t7:=t3*t7;
+    t7:=t4-t7;
+    t7:=t7^2;
+    t3:=t3*t9;
+    t2:=t2*t6;
+    t3:=t3-t2;
+    t3:=t3^2;
+    t3:=t3*cP;
+    t3:=t3*cQ;
+    _,test:=xDBL(XQ,ZQ,A+2,4);
+    valid:=(ZQ ne 0 and test eq 0); // checks order Q
+    _,test:=xDBL(XP,ZP,A+2,4);
+    valid:=valid and (ZP ne 0 and test eq 0); //checks order P
+    valid:=valid and (t7 ne t3); // checks Weil pairing non trivial 
+    t0:=xP+xQ;
+    t1:=xQP*t0;
+    t1:=t1-1;
+    t2:=xP*xQ;
+    t1:=t2+t1;
+    t1:=t1^2;
+    t0:=t0+xQP;
+    t0:=t0+A;
+    t2:=t2*xQP;
+    t0:=t0*t2;
+    t0:=t0+t0;
+    t0:=t0+t0;
+
+    valid:=valid and (t0 eq t1);
+    valid:=valid and test_curve(A,X); 
+
+    return valid;
+
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+// Bob's validation of Alice's public keys
+////////////////////////////////////////////////////////////////////////////////
+
+TPLline:=function(x,z,X,Z,xP,xQ,A) // 61M+12S+37a
+
+        /*
+        This function computes the x-only Miller tripling and line function 
+        evaluation for both the numerator (fP(Q)) and denominator (fQ(P)) in 
+        Miller's algorithm for the Weil pairing. 
+
+        Input:  
+        - The intermediate multiple (x:z) of P on the Kummer variety,
+        - the intermediate multiple (X:Z) of Q on the Kummer variety,
+        - the x-coordinate xP of the input point P (the intermediate fQ is 
+          evaluated here),
+        - the x-coordinate xQ of the input point Q (the intermediate fP is 
+          evaluated here),
+        - the Montgomery curve constant A corresponding to y^2=x^3+A*x^2+x.
+        
+        Output: 
+        - The new intermediate multiple (X3:Z3) of P,
+        - the new intermediate multiple (X4:Z4) of Q,
+        - the recurrence "ui" values UP,UPZ,UQ,UQZ a la Galbraith and Lin,
+        - the Miller function indeterminants: 
+            alpha_numer, beta_numer and alpha_denom, beta_denom.
+        */
+
+    t0:=x^2;
+    t1:=z^2;
+    t2:=x*z;
+    t3:=A*t2;
+    t4:=t0+t1;
+    t5:=t4+t3;
+    t3:=t3+t5;
+    t5:=t5+t5;
+    l2P:=t1+t1;
+    l2P:=l2P+t1;
+    l2P:=l2P+t3;
+    l2P:=l2P+t5;
+    l2P:=l2P*t0;
+    alpha_numer:=t1^2;
+    l2P:=l2P-alpha_numer;
+    l1P:=t0+t3;
+    l1P:=l1P+t0;
+    l1P:=t5*l1P;
+    l1P:=l1P-l2P;
+    l1P:=l1P+l1P;
+    l0P:=t0-t1;
+    l0P:=l0P*t5;
+    l0P:=l0P+l0P;
+    l0P:=l2P-l0P;
+    X3:=l0P^2;
+    Z3:=l2P^2;
+    alpha_numer:=x*t5;
+    alpha_numer:=alpha_numer+alpha_numer;
+    alpha_numer:=alpha_numer+alpha_numer;
+    t0:=t0*l0P;
+    t5:=l2P*xQ;
+    t5:=t5*t1;
+    beta_numer:=l1P*t2;
+    beta_numer:=beta_numer+t5;
+    beta_numer:=beta_numer*xQ;
+    beta_numer:=beta_numer+t0;
+    beta_numer:=-beta_numer;
+    t5:=A*t4;
+    t4:=t4^2;
+    t2:=t2+t2;
+    UP:=t5+t2;
+    t5:=t5-t2;
+    UP:=t2*UP;
+    UP:=UP+t4;
+    t2:=t2*t5;
+    t2:=t2+t4;
+    t4:=t4+t4;
+    t2:=t2+t4;
+    UP:=UP*t2;
+    UP:=UP+UP;
+    UP:=UP+UP;
+    UP:=UP-X3;
+    X3:=x*X3;
+    UP:=UP-Z3;
+    UP:=-UP*l0P;
+    UPZ:=Z3*l2P;
+    UPZ:=UPZ+UPZ;
+    Z3:=z*Z3; 
+    t0:=X^2;
+    t6:=Z^2;
+    t2:=X*Z;
+    t3:=A*t2;
+    t4:=t0+t6;
+    t5:=t4+t3;
+    t3:=t3+t5;
+    t5:=t5+t5;
+    l2Q:=t6+t6;
+    l2Q:=l2Q+t6;
+    l2Q:=l2Q+t3;
+    l2Q:=l2Q+t5;
+    l2Q:=l2Q*t0;
+    alpha_denom:=t6^2;
+    l2Q:=l2Q-alpha_denom;
+    l1Q:=t0+t3;
+    l1Q:=l1Q+t0;
+    l1Q:=t5*l1Q;
+    l1Q:=l1Q-l2Q;
+    l1Q:=l1Q+l1Q;
+    l0Q:=t0-t6;
+    l0Q:=l0Q*t5;
+    l0Q:=l0Q+l0Q;
+    l0Q:=l2Q-l0Q;
+    X4:=l0Q^2;
+    Z4:=l2Q^2;
+    alpha_denom:=X*t5;
+    alpha_denom:=alpha_denom+alpha_denom;
+    alpha_denom:=alpha_denom+alpha_denom;
+    t0:=t0*l0Q;
+    t5:=l2Q*xP;
+    t5:=t5*t6;
+    beta_denom:=l1Q*t2;
+    beta_denom:=beta_denom+t5;
+    beta_denom:=beta_denom*xP;
+    beta_denom:=beta_denom+t0;
+    beta_denom:=-beta_denom;
+    t5:=A*t4;
+    t4:=t4^2;
+    t2:=t2+t2;
+    UQ:=t5+t2;
+    t5:=t5-t2;
+    UQ:=t2*UQ;
+    UQ:=UQ+t4;
+    t2:=t2*t5;
+    t2:=t2+t4;
+    t4:=t4+t4;
+    t2:=t2+t4;
+    UQ:=UQ*t2;
+    UQ:=UQ+UQ;
+    UQ:=UQ+UQ;
+    UQ:=UQ-X4;
+    X4:=X*X4;
+    UQ:=UQ-Z4;
+    UQ:=-UQ*l0Q;
+    UQZ:=Z4*l2Q;
+    UQZ:=UQZ+UQZ;
+    Z4:=Z*Z4; 
+    t2:=t1*t6;
+    t6:=t6*Z3;
+    t1:=t1*Z4;
+    alpha_denom:=alpha_denom*Z;
+    alpha_denom:=alpha_denom*Z4;
+    alpha_numer:=alpha_numer*z;
+    alpha_numer:=alpha_numer*Z3;
+    t3:=xP*Z4;
+    t3:=t3-X4;
+    t3:=t3*l2Q;
+    t5:=xQ*Z3;
+    t5:=t5-X3;
+    t5:=t5*l2P;
+    alpha_numer:=alpha_numer*t3;
+    alpha_numer:=alpha_numer*t2;
+    beta_numer:=beta_numer*t3;
+    beta_numer:=beta_numer*t6;
+    alpha_denom:=alpha_denom*t5;
+    alpha_denom:=alpha_denom*t2;
+    beta_denom:=beta_denom*t5;
+    beta_denom:=beta_denom*t1;
+
+    return X3,Z3,X4,Z4,UP,UPZ,UQ,UQZ,alpha_numer,beta_numer,alpha_denom,beta_denom;
+
+end function;
+
+cube_indeterminant:=function(a,b,sq) //3M+2S+5a
+
+    /*
+    This computes a*y+b <-- (a*y+b)^3 where y^2=sq.
+    */
+
+    t0:=a;
+    t1:=b^2;
+    t2:=t0^2;
+    t2:=t2*sq;
+    t3:=t2+t1;
+    a:=t3+t1;
+    a:=a+t1;
+    a:=t0*a;
+    t1:=t3+t2;
+    t1:=t1+t2;
+    b:=t1*b;
+
+    return a,b;
+
+end function;
+
+line_indeterminant_TPL:=function(a,b,c,d,sq) //5M+2a
+  
+    /*
+    This computes a*y+b <-- (a*y+b)*(c*y+d) where y^2=sq.
+    */
+
+    t0:=a*c;
+    a:=a*d;
+    t1:=b*c;
+    a:=a+t1;
+    t1:=d*b;
+    b:=t0*sq;
+    b:=b+t1;
+
+    return a,b;
+
+end function;
+
+validate_PKA:=function(A,xP,xQ,xQP,e)
+
+    /*
+    This is the main function that validates Alice's public keys.
+
+    Input:  
+    - Alice's public key [A,xP,xQ,xQP],
+    - the exponent eB (=239 for our curve) for Miller's algorithm.
+
+    Output: 
+    - A boolean value, "true" if the key is valid, "false" otherwise.
+    */
+
+    X:=Random(Fp2); // used for Sutherland's algorithm
+    // (can be fixed in practice, must be secret, make it a hash)
+
+    valid:=true;
+
+    // initialization for Weil pairing
+    XP:=xP; ZP:=1;  
+    XQ:=xQ; ZQ:=1;
+    uP:=1;  uQ:=1;  
+    uPD:=1; uQD:=1;
+    sqP:=xP+A;
+    sqP:=xP*sqP;
+    sqP:=sqP+1;
+    sqQ:=xQ+A;
+    sqQ:=xQ*sqQ;
+    sqQ:=sqQ+1;    
+    sqQ:=xQ*sqQ;
+    sqP:=xP*sqP;
+    sq:=sqP*sqQ;
+
+    // initialize the Miller function    
+    alpha_numer:=0; beta_numer:=1;
+    alpha_denom:=0; beta_denom:=1;
+
+    // the x-only tripling-only Miller loop
+    for j:=1 to e-1 do
+
+        alpha_numer,beta_numer:=cube_indeterminant(alpha_numer,beta_numer,sq); //3M+2S+5a
+        alpha_denom,beta_denom:=cube_indeterminant(alpha_denom,beta_denom,sq); //3M+2S+5a
+        XP,ZP,XQ,ZQ,UP,UPZ,UQ,UQZ,alphan,betan,alphad,betad:=TPLline(XP,ZP,XQ,ZQ,xP,xQ,A); //61M+12S+37a
+
+        alphan:=alphan*uP; //11M
+        alphan:=alphan*uQD; 
+        alphad:=alphad*uQ; 
+        alphad:=alphad*uPD;
+        t0:=uQD*uPD;
+        betan:=betan*t0;
+        betad:=betad*t0;
+        uP:=uP*UP;
+        uPD:=uPD*UPZ;
+        uQ:=uQ*UQ;
+        uQD:=uQD*UQZ;
+
+        alpha_numer,beta_numer:=line_indeterminant_TPL(alpha_numer,beta_numer,alphan,betan,sq); //5M+2a
+        alpha_denom,beta_denom:=line_indeterminant_TPL(alpha_denom,beta_denom,alphad,betad,sq); //5M+2a
+
+    end for;
+
+    // the special, final iteration checks the orders of the points
+    // before checking that the Weil pairing is non-trivial
+
+    alpha_numer,beta_numer:=cube_indeterminant(alpha_numer,beta_numer,sq);
+    alpha_denom,beta_denom:=cube_indeterminant(alpha_denom,beta_denom,sq);
+
+    t0:=A*ZP;
+    t1:=XP+XP;
+    t1:=t1+XP;
+    t2:=t1+t0;
+    t1:=t2+t0;
+    lambdaP:=t1*XP;
+    t1:=ZP^2;
+    lambdaP:=lambdaP+t1;
+    t1:=t1*ZP;
+    t0:=t1*sqP;
+    t1:=t1*uPD;
+    t3:=uP^2;
+    t0:=t0*t3;
+    t0:=t0+t0;
+    t2:=t2*t0;
+    t2:=t2+t2;
+    t3:=lambdaP*uPD;
+    t4:=t3^2;
+
+    valid:=valid and (t2 eq t4); //checks order P by 
+    valid:=valid and (t2 ne 0);  //asserting that 3^238*P has order 3
+   
+    t5:=A*ZQ;
+    t6:=XQ+XQ;
+    t6:=t6+XQ;
+    t2:=t6+t5;
+    t6:=t2+t5;
+    lambdaQ:=t6*XQ;
+    t6:=ZQ^2;
+    lambdaQ:=lambdaQ+t6;
+    t6:=t6*ZQ;
+    t5:=t6*sqQ;
+    t6:=t6*uQD;
+    t7:=uQ^2;
+    t5:=t5*t7;
+    t5:=t5+t5;
+    t2:=t2*t5;
+    t2:=t2+t2;
+    t7:=lambdaQ*uQD;
+    t4:=t7^2;
+
+    valid:=valid and (t2 eq t4); //checks order Q by
+    valid:=valid and (t2 ne 0);  //asserting that 3^238*Q has order 3
+
+    lnQ:=xQ*ZP;
+    lnQ:=XP-lnQ;
+    lnQ:=t3*lnQ;
+    lnQ:=lnQ*uPD;
+    lnQ:=lnQ-t0;
+    ldP:=xP*ZQ;
+    ldP:=XQ-ldP;
+    ldP:=t7*ldP;
+    ldP:=uQD*ldP;
+    ldP:=ldP-t5;
+    lnP:=uP*uQ;
+    lnP:=lnP+lnP;
+    ldQ:=lnP*sqP;
+    lnP:=lnP*sqQ;
+    ldP:=ldP*uP;
+    ldP:=ldP*t1;
+    lnQ:=lnQ*uQ;
+    lnQ:=lnQ*t6;
+    t1:=t1*t6;
+    lnP:=lnP*t1;    
+    ldQ:=ldQ*t1;
+    t0:=alpha_numer;
+    alpha_numer:=lnP*t0;
+    alpha_numer:=alpha_numer*sqP;
+    t1:=lnQ*beta_numer;
+    alpha_numer:=t1+alpha_numer;
+    t1:=t0*sqQ;
+    t1:=t1*lnQ;
+    beta_numer:=lnP*beta_numer;
+    beta_numer:=beta_numer+t1;
+    t0:=alpha_denom;
+    t1:=ldP*t0;
+    t1:=t1*sqP;
+    alpha_denom:=ldQ*beta_denom;
+    alpha_denom:=alpha_denom+t1;
+    t1:=t0*sqQ;
+    t1:=ldQ*t1;
+    beta_denom:=ldP*beta_denom;
+    beta_denom:=beta_denom+t1;
+    
+    t2:=alpha_numer+alpha_denom;
+    t2:=t2^2;
+    t2:=t2*sqQ;
+    t4:=beta_numer+beta_denom;
+    t4:=t4^2;
+    t4:=t4*sqP;
+
+    valid:=valid and (t2 ne t4); //iff weil pairing ne 1
+
+    t0:=xP+xQ;
+    t1:=xQP*t0;
+    t1:=t1-1;
+    t2:=xP*xQ;
+    t1:=t2+t1;
+    t1:=t1^2;
+    t0:=t0+xQP;
+    t0:=t0+A;
+    t2:=t2*xQP;
+    t0:=t0*t2;
+    t0:=t0+t0;
+    t0:=t0+t0;
+
+    valid:=valid and (t0 eq t1); //third point is difference
+
+    valid:=valid and test_curve(A,X); 
+
+    return valid;
+
+end function;
