@@ -1,4 +1,4 @@
-##Digital Signature Scheme based on Supersingular Isogenies.
+## Digital Signature Scheme based on Supersingular Isogenies.
 
 This software implements the digital signature scheme described in the paper [*A Post-Quantum Digital Signature Scheme Based on Supersingular Isogenies*](https://eprint.iacr.org/2017/186) by Yoo, Azarderakhsh, Jalali, Jao, and Soukharev.
 
